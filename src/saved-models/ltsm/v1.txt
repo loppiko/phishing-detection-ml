@@ -1,0 +1,13 @@
+Embedding(input_dim=5000, output_dim=128, input_length=max_length),
+            LSTM(128, return_sequences=True),  # Pierwsza warstwa LSTM z return_sequences=True
+            Dropout(0.5),
+            LSTM(128),  # Druga warstwa LSTM
+            Dropout(0.5),
+            Dense(64, activation='relu'),
+            Dropout(0.5),
+            Dense(4, activation='softmax')  # Wyjście dla 4 klas
+
+
+body_max_length = 500
+
+Without any additional preprocessing. Processing only body of message

@@ -1,0 +1,13 @@
+bin/
+lib/
+lib64*
+share/
+include/
+src/dataset/
+
+.idea/
+
+*.json
+*.csv
+
+pyvenv.cfg
