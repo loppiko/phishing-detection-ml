@@ -1,18 +1,16 @@
-import numpy as np
-import tensorflow as tf
+
 from tensorflow.keras.preprocessing.text import Tokenizer
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
 import pandas as pd
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Embedding, LSTM, Dense, Dropout
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.utils import to_categorical
-from tensorflow.keras.layers import GRU
+
+from src.models.model import Model
 
 
-class LSTMModel:
+class LSTMModelBasic(Model):
 
     def __init__(self, max_length: int):
         self.model = Sequential([
@@ -37,7 +35,7 @@ class LSTMModel:
 
 
 
-def train_lstm_model(lstm_model: LSTMModel, train_data: pd.DataFrame, train_labels: pd.DataFrame, max_length: int) -> None:
+def train_lstm_model(lstm_model: LSTMModelBasic, train_data: pd.DataFrame, train_labels: pd.DataFrame, max_length: int) -> None:
     tokenizer = Tokenizer(num_words=5000)
     tokenizer.fit_on_texts(train_data)
 
@@ -54,7 +52,7 @@ def train_lstm_model(lstm_model: LSTMModel, train_data: pd.DataFrame, train_labe
     print(lstm_model.evaluate(X_test, Y_test))
 
 
-data = pd.read_csv("dataset/processed/final.csv")
+data = pd.read_csv("../../dataset/processed/final.csv")
 
 
 body = data['body'].values
@@ -65,11 +63,6 @@ body_max_length = 500
 # print(body[:5])
 # print(labels[:5])
 
-model = LSTMModel(body_max_length)
+model = LSTMModelBasic(body_max_length)
 
 train_lstm_model(model, body, labels, body_max_length)
-
-
-
-
-

@@ -20,7 +20,8 @@ from nltk.stem import WordNetLemmatizer
 
 from rapidfuzz import process
 
-from callbacks.TqdmCallback import TqdmCallback
+from src.models.model import Model
+
 
 ### TODO
 
@@ -32,7 +33,7 @@ from callbacks.TqdmCallback import TqdmCallback
 
 
 
-class XGBoostModel:
+class XGBoostModel(Model):
 
     def __init__(self, number_of_estimators: int = 1000, max_depth: int = 10, learning_rate: float = 0.1) -> None:
         self.vectorizer = None
