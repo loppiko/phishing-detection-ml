@@ -40,9 +40,9 @@ from src.models.model import Model
 class LSTMModelAdvanced(Model):
     history = None
 
-    def __init__(self, max_length: int):
+    def __init__(self):
         self.model = Sequential([
-            Embedding(input_dim=5000, output_dim=128, input_length=max_length),
+            Embedding(input_dim=5000, output_dim=128),
             LSTM(128),
             Dropout(0.5),
             Dense(64, activation='relu'),
@@ -54,8 +54,8 @@ class LSTMModelAdvanced(Model):
     def fit(self, x_train: pd.DataFrame, y_train: pd.DataFrame, x_val: pd.DataFrame, y_val: pd.DataFrame):
         early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
 
-        self.model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'], callbacks=[early_stopping])
-        self.history = self.model.fit(x_train, y_train, epochs=1, batch_size=32, validation_split=0.2)
+        self.model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+        self.history = self.model.fit(x_train, y_train, epochs=50, batch_size=32, validation_split=0.2, callbacks=[early_stopping])
 
 
     def evaluate(self, x_test: pd.DataFrame, y_test: pd.DataFrame) -> None:
@@ -78,6 +78,7 @@ class LSTMModelAdvanced(Model):
         plt.ylabel('True')
         plt.title('Confusion Matrix')
         plt.savefig(f"../../saved-results/lstm/v2/{model_name}-conf-matrix.png")
+        plt.clf()
 
         accuracy = self.history.history['accuracy']
         val_accuracy = self.history.history['val_accuracy']
@@ -132,7 +133,7 @@ def train_lstm_model(lstm_model: LSTMModelAdvanced, train_data: np.ndarray, trai
     X_val, X_test, Y_val, Y_test = train_test_split(X_temp, Y_temp, test_size=0.5, random_state=28)
 
     lstm_model.fit(X_train, Y_train, X_val, Y_val)
-    print(lstm_model.evaluate(X_test, Y_test))
+    lstm_model.evaluate(X_test, Y_test)
     lstm_model.make_plots(X_test, Y_test, model_name)
 
     if model_save_path is not None:
@@ -153,16 +154,25 @@ def preprocess_data(df: pd.DataFrame, add_subject: bool, add_domain: bool) -> Tu
 
 
 
-data = pd.read_csv("../../dataset/processed/final.csv").sample(n=10000, random_state=29)
-# models_names = ["only-body", "stop-words-body", "body-subject", "body-domain", "full-data"]
+
+MODELS_PARAMS = [
+    {"model_name": "only-body", "dataset": "../../dataset/processed/final.csv", "add_subject": False, "add_domain": False},
+    {"model_name": "stop-words-body", "dataset": "../../dataset/processed/final-with-stop-words.csv", "add_subject": False, "add_domain": False},
+    # {"model_name": "body-subject", "dataset": "../../dataset/processed/final.csv", "add_subject": True, "add_domain": False},
+    # {"model_name": "body-domain", "dataset": "../../dataset/processed/final-domain-only.csv", "add_subject": False, "add_domain": True},
+    # {"model_name": "full-data", "dataset": "../../dataset/processed/final-domain-only.csv", "add_subject": True, "add_domain": True}
+]
 
 
-numpy_data, labels = preprocess_data(data, add_subject=False, add_domain=True)
+for params in MODELS_PARAMS:
+    data = pd.read_csv(params["dataset"])
+    numpy_data, labels = preprocess_data(data, add_subject=params["add_subject"], add_domain=params["add_domain"])
+
+    body_max_length = 1000
+
+    body_model = LSTMModelAdvanced()
+    train_lstm_model(body_model, numpy_data, labels, body_max_length, params["model_name"], f"saved/{params['model_name']}.keras")
+    print(f"Model {params['model_name']} finished. Written as saved/{params['model_name']}.keras")
 
 
-body_max_length = 1000
 
-body_model = LSTMModelAdvanced(body_max_length)
-
-train_lstm_model(body_model, numpy_data, labels, body_max_length, {model_name}, f"{model_name}.h5")
-# train_lstm_model(subject_model, subject, labels, subject_max_length, plot_save_path)

@@ -9,5 +9,6 @@ src/dataset/
 
 *.json
 *.csv
+*.keras
 
 pyvenv.cfg

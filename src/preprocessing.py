@@ -34,6 +34,8 @@ def preprocess_dataset_subject(subject: str) -> str | None:
     
     subject = subject.lower()
     subject = re.sub(r'[^a-zA-Z\s]', '', subject)
+
+    # Stop_words
     subject = " ".join(word for word in subject.split() if word not in stop_words_set)
     subject = " ".join([lemmatizer.lemmatize(word) for word in subject.split()])  # 4. Lematyzacja
 
@@ -74,10 +76,15 @@ def preprocess_dataset_sender_receiver(data: str) -> str | None:
         return None
 
     data = data.strip().lower()
-    # data = data.split('@')[-1]        # TODO: Only domain
+    data = data.split('@')[-1]        # TODO: Only domain
+
+    match = re.match(r'^[a-z0-9._-]*', data)  # Dozwolone: litery, cyfry, ., _, -
+
+    if match:
+        data = match.group(0)
 
     if data == '':
-        return None
+            return None
 
     return data
 
@@ -160,7 +167,10 @@ print(f"body: {final_data_frame['body'].isna().sum()}")
 print(f"sender: {final_data_frame['sender'].isna().sum()}")
 print(f"receiver: {final_data_frame['receiver'].isna().sum()}")
 
-final_data_frame.to_csv("dataset/processed/final.csv", index=False)
+print(final_data_frame['sender'].head(5))
+print(final_data_frame['receiver'].head(5))
+
+final_data_frame.to_csv("dataset/processed/final-domain-only.csv", index=False)
 
 # Filtrujemy dane i wybieramy 5 pierwszych wierszy, gdzie kolumna 'label' jest równa 1
 # filtered_rows = df[df['label'] == 1]
