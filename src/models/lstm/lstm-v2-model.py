@@ -15,6 +15,7 @@ from tensorflow.keras.models import load_model
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.metrics import f1_score
+from sklearn.utils.class_weight import compute_class_weight
 
 import numpy as np
 
@@ -22,7 +23,7 @@ from src.models.model import Model
 
 # TODO
 ### 🔷 1. Compare model with and without stopwords
-### 2. Use padding to cut additional part of the message (max_len) - Normalizacja długości sekwencji
+### 🔷 2. Use padding to cut additional part of the message (max_len) - Normalizacja długości sekwencji
 ### 🔷 3. Only domain
 ###     3a. Only domains
 ###    🔷 3b. Domain matches
@@ -31,7 +32,8 @@ from src.models.model import Model
 ### ? Bidirectional
 ### 6. Hiper-parameters opt.
 ### 🔷 7. Early Stopping
-### 8. Compare all models
+### 🔷 8. Resolve unbalanced dataset problem
+### 9. Compare all models
 ### ? Cross validation
 ### 🔷 ? F1-score -> Not eqauls dataset, Precision/Recall -> Fal-Pos, Pos-Fal have meaning
 
@@ -52,10 +54,22 @@ class LSTMModelAdvanced(Model):
 
 
     def fit(self, x_train: pd.DataFrame, y_train: pd.DataFrame, x_val: pd.DataFrame, y_val: pd.DataFrame):
-        early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+        early_stopping = EarlyStopping(monitor='val_loss', patience=30, restore_best_weights=True)
+
+        # class_weights = compute_class_weight(
+        #     class_weight='balanced',
+        #     classes=np.unique(np.argmax(y_train, axis=1)),  # Zakładając, że y_train to one-hot encoding
+        #     y=np.argmax(y_train, axis=1)
+        # )
+        #
+        #
+        #
+        # class_weights_dict = dict(enumerate(class_weights))
+
+        class_weights = {0: 1, 1: 2.5, 2: 1.75, 3: 12}
 
         self.model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-        self.history = self.model.fit(x_train, y_train, epochs=50, batch_size=32, validation_split=0.2, callbacks=[early_stopping])
+        self.history = self.model.fit(x_train, y_train, epochs=40, batch_size=16, validation_split=0.2, callbacks=[early_stopping], class_weight=class_weights)
 
 
     def evaluate(self, x_test: pd.DataFrame, y_test: pd.DataFrame) -> None:
@@ -156,11 +170,11 @@ def preprocess_data(df: pd.DataFrame, add_subject: bool, add_domain: bool) -> Tu
 
 
 MODELS_PARAMS = [
-    {"model_name": "only-body", "dataset": "../../dataset/processed/final.csv", "add_subject": False, "add_domain": False},
+    # {"model_name": "only-body", "dataset": "../../dataset/processed/final.csv", "add_subject": False, "add_domain": False},
     {"model_name": "stop-words-body", "dataset": "../../dataset/processed/final-with-stop-words.csv", "add_subject": False, "add_domain": False},
-    # {"model_name": "body-subject", "dataset": "../../dataset/processed/final.csv", "add_subject": True, "add_domain": False},
-    # {"model_name": "body-domain", "dataset": "../../dataset/processed/final-domain-only.csv", "add_subject": False, "add_domain": True},
-    # {"model_name": "full-data", "dataset": "../../dataset/processed/final-domain-only.csv", "add_subject": True, "add_domain": True}
+    {"model_name": "body-subject-stop", "dataset": "../../dataset/processed/final-with-stop-words.csv", "add_subject": True, "add_domain": False},
+    {"model_name": "body-domain-stop", "dataset": "../../dataset/processed/final-with-stop-words-domain-only.csv", "add_subject": False, "add_domain": True},
+    {"model_name": "full-data-stop", "dataset": "../../dataset/processed/final-with-stop-words-domain-only.csv", "add_subject": True, "add_domain": True}
 ]
 
 

@@ -29,7 +29,7 @@ class LSTMModelBasic(Model):
         self.model.fit(x_train, y_train, epochs=5, batch_size=32, validation_split=0.2)
 
 
-    def evaluate(self, x_test: pd.DataFrame, y_test: pd.DataFrame):
+    def evaluate(self, x_test: pd.DataFrame, y_test: pd.DataFrame) -> None:
         loss, accuracy = self.model.evaluate(x_test, y_test)
         print(f"Loss: {loss}, Accuracy: {accuracy}")
 
