@@ -1,9 +1,7 @@
 import pandas as pd
 import nltk
 import re
-from rapidfuzz import process
 from nltk.stem import WordNetLemmatizer
-import tqdm
 
 
 # TODO - Final columns in dataset: Sender, Receiver, Subject, Body
