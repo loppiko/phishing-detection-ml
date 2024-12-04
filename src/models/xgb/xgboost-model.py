@@ -29,7 +29,7 @@ from src.models.model import Model
 
 ### Transformers: BERT
 
-### Models: LTSM
+### Models: LSTM
 
 
 
@@ -39,11 +39,11 @@ class XGBoostModel(Model):
         self.vectorizer = None
         self.known_words = None
         self.model = XGBClassifier(
-            n_estimators=number_of_estimators,          # liczba drzew
-            max_depth=max_depth,                        # maksymalna głębokość drzew
-            learning_rate=learning_rate,                # szybkość uczenia się
-            subsample=0.8,                              # losowa część próbek używana do każdego drzewa
-            colsample_bytree=0.8,                       # losowa część cech używana dla każdego drzewa
+            n_estimators=number_of_estimators,
+            max_depth=max_depth,
+            learning_rate=learning_rate,
+            subsample=0.8,
+            colsample_bytree=0.8,
             eval_metric='mlogloss',
             early_stopping_rounds=20,
             verbosity=3
@@ -164,6 +164,12 @@ class XGBoostModel(Model):
         df = df[sorted_columns]
 
         return df
+
+    def create_confusion_matrix(self):
+        pass
+
+    def make_plots(self) -> None:
+        pass
 
 
 logging.basicConfig( level=logging.DEBUG,

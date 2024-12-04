@@ -7,10 +7,8 @@ from tensorflow.keras.layers import Embedding, LSTM, Dense, Dropout
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.utils import to_categorical
 
-from src.models.model import Model
 
-
-class LSTMModelBasic(Model):
+class LSTMModelBasic:
 
     def __init__(self, max_length: int):
         self.model = Sequential([

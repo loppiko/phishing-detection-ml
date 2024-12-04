@@ -9,3 +9,11 @@ class Model(ABC):
     @abstractmethod
     def evaluate(self, *args) -> float:
         pass
+
+    @abstractmethod
+    def make_plots(self, *args) -> None:
+        pass
+
+    @abstractmethod
+    def create_confusion_matrix(self, *args) -> None:
+        pass
