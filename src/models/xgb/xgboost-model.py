@@ -189,24 +189,24 @@ class XGBoostModel(Model):
 
         epochs = len(self.history["train_loss"])
 
+        plt.figure(figsize=(18, 6))
+
         plt.subplot(1, 3, 1)
-        plt.plot(range(epochs), self.history['val_loss'], label="Validation Loss", color='blue')
-        plt.plot(range(epochs), self.history['train_loss'], label="Training Loss", color='orange')
+        plt.plot(range(epochs), self.history['val_loss'], label="Validation Loss", color='orange')
         plt.xlabel("Epochs")
         plt.ylabel("Loss")
         plt.legend()
         plt.title("Loss over Epochs")
 
         plt.subplot(1, 3, 3)
-        plt.plot(range(epochs), self.history['val_acc'], label="Validation Accuracy", color='blue')
-        plt.plot(range(epochs), self.history['train_acc'], label="Training Accuracy", color='orange')
+        plt.plot(range(epochs), self.history['val_acc'], label="Validation Accuracy", color='orange')
         plt.xlabel("Epochs")
         plt.ylabel("Accuracy")
         plt.legend()
         plt.title("Accuracy over Epochs")
 
         plt.subplot(1, 3, 2)
-        plt.plot(range(len(self.f1_scores)), self.f1_scores, label="Validation F1", color='green')
+        plt.plot(range(len(self.f1_scores)), self.f1_scores, label="Validation F1", color='orange')
         plt.xlabel("Epochs")
         plt.ylabel("F1-Score")
         plt.legend()
