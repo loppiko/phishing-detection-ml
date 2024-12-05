@@ -84,9 +84,10 @@ class LSTMModelAdvanced(Model):
         self.f1_scores = f1_callback.f1_scores
 
 
-    def evaluate(self, x_test: pd.DataFrame, y_test: pd.DataFrame) -> None:
+    def evaluate(self, x_test: pd.DataFrame, y_test: pd.DataFrame) -> float:
         loss, accuracy = self.model.evaluate(x_test, y_test)
         print(f"Loss: {loss}, Accuracy: {accuracy}")
+        return accuracy
 
 
     def create_confusion_matrix(self, x_test: pd.DataFrame, y_test: pd.DataFrame):

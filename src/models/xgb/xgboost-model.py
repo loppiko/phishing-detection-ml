@@ -1,47 +1,49 @@
-from xgboost import callback
+from typing import Tuple
 
 import pandas as pd
 import json
+import logging
+import numpy as np
 
-import xgboost
 from xgboost import XGBClassifier
 
 from tqdm import tqdm
-import logging
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, confusion_matrix
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 from nltk.stem import WordNetLemmatizer
 
 from rapidfuzz import process
 
 from src.models.model import Model
+from xgboostCallbacks import F1ScoreCallback, HistoryCallback
 
 
-### TODO
-
-### Starter: XGBoost ✅
-
-### Transformers: BERT
-
-### Models: LSTM
 
 
+MAIN_DIR = "/kaggle/working/"
 
 class XGBoostModel(Model):
 
-    def __init__(self, number_of_estimators: int = 1000, max_depth: int = 10, learning_rate: float = 0.1) -> None:
+
+    def __init__(self, model_name: str, model_category: str) -> None:
+        self.model_name = model_name
+        self.model_category = model_category
         self.vectorizer = None
         self.known_words = None
+        self.cm: list[list[float]] = []
+        self.f1_scores: list[float] = []
+        self.history = {}
         self.model = XGBClassifier(
-            n_estimators=number_of_estimators,
-            max_depth=max_depth,
-            learning_rate=learning_rate,
+            n_estimators=1000,
+            max_depth=10,
+            learning_rate=0.1,
             subsample=0.8,
             colsample_bytree=0.8,
             eval_metric='mlogloss',
@@ -53,13 +55,19 @@ class XGBoostModel(Model):
     def fit(self, x_train: pd.DataFrame, y_train: pd.DataFrame, x_val: pd.DataFrame, y_val: pd.DataFrame) -> None:
         self.known_words = set(x_train.columns)
 
+        f1_score_callback = F1ScoreCallback(x_val, y_val)
+        history_callback = HistoryCallback(x_val, y_val)
+
         self.model.fit(
             x_train,
             y_train,
             verbose=True,
-            eval_set=[(x_val, y_val)]
+            eval_set=[(x_val, y_val)],
+            callbacks=[f1_score_callback, history_callback]
         )
 
+        self.f1_scores = f1_score_callback.get_scores()
+        self.history = history_callback.get_history()
 
     
     def evaluate(self, x_test: pd.DataFrame, y_test: pd.DataFrame) -> float:
@@ -69,7 +77,10 @@ class XGBoostModel(Model):
         return accuracy
 
 
-    def save(self, model_save_path: str) -> None:
+    def save(self, model_save_path: str = "") -> None:
+        if model_save_path == "":
+            model_save_path = f"{MAIN_DIR}/models/xgb/saved/{self.model_category}-{self.model_name}"
+
         self.model.save_model(f"{model_save_path}.json")
         with open(f"{model_save_path}-known-words.json", "w") as f:
             json.dump(list(self.known_words), f)
@@ -80,11 +91,6 @@ class XGBoostModel(Model):
         self.model.load_model(f"{model_load_path}.json")
         with open(f"{model_load_path}-known-words.json", "r") as f:
             self.known_words = set(json.load(f))
-
-
-    def plot_model(self, save_path: str) -> None:
-        xgboost.plot_importance(self.model)
-        plt.savefig(save_path)
 
 
     def preprocess_to_known(self, df: pd.DataFrame, column: str) -> pd.DataFrame:
@@ -98,17 +104,14 @@ class XGBoostModel(Model):
 
             for word in words:
                 lemma = lemmatizer.lemmatize(word.lower())
-
                 if lemma in self.known_words:
                     processed_words.append(lemma)
                 else:
                     closest_match = process.extractOne(lemma, self.known_words)
-
                     if closest_match[1] > 80:
                         processed_words.append(closest_match[0])
 
             return " ".join(processed_words)
-
 
         df[column] = df[column].progress_apply(process_text)
 
@@ -165,11 +168,52 @@ class XGBoostModel(Model):
 
         return df
 
-    def create_confusion_matrix(self):
-        pass
+
+    def create_confusion_matrix(self, x_test: pd.DataFrame, y_test: pd.DataFrame) -> None:
+        y_pred_probs = self.model.predict_proba(x_test)
+        y_pred = np.argmax(y_pred_probs, axis=1)
+        y_true = np.argmax(y_test, axis=1)
+
+        self.cm = confusion_matrix(y_true, y_pred)
+
 
     def make_plots(self) -> None:
-        pass
+        sns.heatmap(self.cm, annot=True, fmt='d', cmap='Blues',
+                    xticklabels=['legal', 'spam', 'phishing', 'fraud'],
+                    yticklabels=['legal', 'spam', 'phishing', 'fraud'])
+        plt.xlabel("Predicted Labels")
+        plt.ylabel("True Labels")
+        plt.title("Confusion Matrix")
+        plt.savefig(f"{MAIN_DIR}saved-results/xgb/plots/{self.model_category}/{self.model_name}-conf-matrix.png")
+        plt.clf()
+
+        epochs = len(self.history["train_loss"])
+
+        plt.subplot(1, 3, 1)
+        plt.plot(range(epochs), self.history['val_loss'], label="Validation Loss", color='blue')
+        plt.plot(range(epochs), self.history['train_loss'], label="Training Loss", color='orange')
+        plt.xlabel("Epochs")
+        plt.ylabel("Loss")
+        plt.legend()
+        plt.title("Loss over Epochs")
+
+        plt.subplot(1, 3, 3)
+        plt.plot(range(epochs), self.history['val_acc'], label="Validation Accuracy", color='blue')
+        plt.plot(range(epochs), self.history['train_acc'], label="Training Accuracy", color='orange')
+        plt.xlabel("Epochs")
+        plt.ylabel("Accuracy")
+        plt.legend()
+        plt.title("Accuracy over Epochs")
+
+        plt.subplot(1, 3, 2)
+        plt.plot(range(len(self.f1_scores)), self.f1_scores, label="Validation F1", color='green')
+        plt.xlabel("Epochs")
+        plt.ylabel("F1-Score")
+        plt.legend()
+        plt.title("F1-Score over Epochs")
+
+        plt.tight_layout()
+        plt.savefig(f"{MAIN_DIR}saved-results/xgb/plots/{self.model_category}/{self.model_name}-accuracy.png")
 
 
 logging.basicConfig( level=logging.DEBUG,
@@ -184,107 +228,123 @@ def convert_to_label_encoding(df: pd.DataFrame, column: str) -> pd.DataFrame:
     return df
 
 
-def train_xgb_model(xgb_model: XGBoostModel, train_data: pd.DataFrame, train_labels: pd.DataFrame, model_save_path: str) -> None:
-    X_train, X_temp, Y_train, Y_temp = train_test_split(train_data, train_labels, test_size=0.3, random_state=28)
-    X_val, X_test, Y_val, Y_test = train_test_split(X_temp, Y_temp, test_size=0.5, random_state=28)
 
-    # train_columns = set(X_train.shape)
-    # predict_columns = set(X_test.shape)
-
-    xgb_model.fit(X_train, Y_train, X_val, Y_val)
-    xgb_model.save(model_save_path)
-    print(xgb_model.evaluate(X_test, Y_test))
+def perform_multi_evaluation(xgb_boost_model_list: list[Tuple[XGBoostModel, float]], test_data: pd.DataFrame, test_labels: pd.DataFrame) -> None:
+    for xgb_model, model_accuracy in xgb_boost_model_list:
+        pass
 
 
 
 
-data = pd.read_csv("src/dataset/processed/final.csv").sample(frac=1, random_state=43)
-data = data.reset_index(drop=True)[:16000]
-data = data.rename(columns={'label': '$label'})
-
-# X = data.drop(columns=['label'])
-# Y = data['label']
+CHECK_LOAD_DATA = False
 
 
+MODELS_PARAMS = [
+    {"models": [("body-model", "body", 20)], "model_category": "only-body", "dataset": "../../dataset/processed/final.csv", "add_subject": False, "add_domain": False},
+    {"models": [("body-model", "body", 20)], "model_category": "only-body-with-stop-words", "dataset": "../../dataset/processed/final-with-stop-words.csv", "add_subject": False, "add_domain": False},
+    # {"models": ["body", "subject"], "model_category": "", "dataset": "", "add_subject": True, "add_domain": False},
+    # {"models": ["body", "domain"], "model_category": "", "dataset": "", "add_subject": False, "add_domain": True},
+    # {"models": ["body", "subject", "domain"], "model_category": "", "dataset": "", "add_subject": True, "add_domain": True}
+]
 
-
-xgb_body_model = XGBoostModel()
-xgb_subject_model = XGBoostModel()
 
 ###        ----         Preprocess data
 
-body_tfidf = data[:2000]
-subject_tfidf = data[:8000]
+for param in MODELS_PARAMS:
 
-body_tfidf = xgb_body_model.convert_to_tfidf(body_tfidf, column='body')
-subject_tfidf = xgb_subject_model.convert_to_tfidf(subject_tfidf, column='subject')
+    models: list[Tuple[XGBoostModel, float]] = []
 
-subject_tfidf = subject_tfidf.drop(columns=['sender', 'receiver', 'body'])
-body_tfidf = body_tfidf.drop(columns=['sender', 'receiver', 'subject'])
+    data = pd.read_csv(param["dataset"])
+    label_column = "$label"
+    data = data.rename(columns={'label': label_column})
 
+    for model_name, train_column, data_length in param["models"]:
+        input_data = data.sample(n=data_length, random_state=43)
 
-print('$label' in body_tfidf.columns, '$label' in subject_tfidf.columns)
-body_tfidf = xgb_body_model.add_missing_columns(body_tfidf, '$label')
-body_labels = body_tfidf['$label']
-body_tfidf = body_tfidf.drop(columns=['$label'])
+        xgb_model = XGBoostModel(model_name, param["model_category"])
 
-subject_tfidf = xgb_subject_model.add_missing_columns(subject_tfidf, '$label')
-subject_labels = subject_tfidf['$label']
-subject_tfidf = subject_tfidf.drop(columns=['$label'])
+        input_data = input_data[[train_column, label_column]]
+
+        tfidf_matrix = xgb_model.convert_to_tfidf(input_data, column=train_column)
+        tfidf_matrix = xgb_model.add_missing_columns(tfidf_matrix, label_column)
+
+        train_labels = tfidf_matrix[[label_column]]
+        train_data = tfidf_matrix.drop(columns=[label_column])
+
+        X_train, X_temp, Y_train, Y_temp = train_test_split(train_data, train_labels, test_size=0.3, random_state=28)
+        X_val, X_test, Y_val, Y_test = train_test_split(X_temp, Y_temp, test_size=0.5, random_state=28)
+
+        xgb_model.fit(X_train, Y_train, X_val, Y_val)
+        xgb_model.create_confusion_matrix(X_test, Y_test)
+        xgb_model.make_plots()
+        xgb_model.save()
+
+        model_accuracy = xgb_model.evaluate(X_test, Y_test)
+
+        print(model_accuracy)
+
+        models.append((xgb_model, model_accuracy))
+
+    # if X_test and Y_test:
+    #     perform_multi_evaluation(models, X_test, Y_test)
 
 ###        ----         training model
 
-train_xgb_model(xgb_body_model, body_tfidf, body_labels, model_save_path="xgb_body_model")
-train_xgb_model(xgb_subject_model, subject_tfidf, subject_labels, model_save_path="xgb_subject_model")
+
 
 
 ###        ----         Preprocess testing data
 
-body_tfidf = data[-6000:]
-subject_tfidf = data[-6000:]
+if CHECK_LOAD_DATA:
+    xgb_body_model = XGBoostModel("", "")
+    xgb_subject_model = XGBoostModel("", "")
 
 
-body_tfidf = xgb_body_model.convert_to_tfidf(body_tfidf, column='body')
-subject_tfidf = xgb_subject_model.convert_to_tfidf(subject_tfidf, column='subject')
-
-body_tfidf = body_tfidf.drop(columns=['sender', 'receiver', 'subject'])
-subject_tfidf = subject_tfidf.drop(columns=['sender', 'receiver', 'subject'])
+    body_tfidf = data[-6000:]
+    subject_tfidf = data[-6000:]
 
 
-body_tfidf = xgb_body_model.add_missing_columns(body_tfidf, '$label')
-subject_tfidf = xgb_subject_model.add_missing_columns(subject_tfidf, '$label')
+    body_tfidf = xgb_body_model.convert_to_tfidf(body_tfidf, column='body')
+    subject_tfidf = xgb_subject_model.convert_to_tfidf(subject_tfidf, column='subject')
 
-body_labels = body_tfidf['$label']
-subject_labels = subject_tfidf['$label']
-
-body_tfidf = body_tfidf.drop(columns=['$label'])
-subject_tfidf = subject_tfidf.drop(columns=['$label'])
-# subject_tfidf = xgb_subject_model.convert_to_tfidf(X, column='subject')
-# subject_labels = Y
+    body_tfidf = body_tfidf.drop(columns=['sender', 'receiver', 'subject'])
+    subject_tfidf = subject_tfidf.drop(columns=['sender', 'receiver', 'subject'])
 
 
-# TODO
-# Combine 2 models and build the full one
-###        ----         Testing model
+    body_tfidf = xgb_body_model.add_missing_columns(body_tfidf, '$label')
+    subject_tfidf = xgb_subject_model.add_missing_columns(subject_tfidf, '$label')
 
-print(f"Evaluation body: {xgb_body_model.evaluate(body_tfidf, body_labels)}")
-print(f"Evaluation subject: {xgb_subject_model.evaluate(subject_tfidf, subject_labels)}")
-# #
+    body_labels = body_tfidf['$label']
+    subject_labels = subject_tfidf['$label']
 
-# body_model = XGBoostModel()
-#
-# body_model.load_model("xgb_body_model")
-#
-# body_tfidf = body_model.preprocess_to_known(data[:1000], column='body')
-# body_tfidf = data[:1000].rename(columns={'label': '$label'})
-# #
-# body_tfidf = body_model.convert_to_tfidf(body_tfidf, column='body')
-# body_tfidf = body_tfidf.drop(columns=['sender', 'receiver', 'subject'])
-# body_tfidf = body_model.add_missing_columns(body_tfidf, '$label')
-# body_labels = body_tfidf['$label']
-# #
-# body_tfidf = body_tfidf.drop(columns=['$label'])
-# #
-# #
-# print(body_model.evaluate(body_tfidf, body_labels))
+    body_tfidf = body_tfidf.drop(columns=['$label'])
+    subject_tfidf = subject_tfidf.drop(columns=['$label'])
+    # subject_tfidf = xgb_subject_model.convert_to_tfidf(X, column='subject')
+    # subject_labels = Y
+
+
+    # TODO
+    # Combine 2 models and build the full one
+    ###        ----         Testing model
+
+    print(f"Evaluation body: {xgb_body_model.evaluate(body_tfidf, body_labels)}")
+    print(f"Evaluation subject: {xgb_subject_model.evaluate(subject_tfidf, subject_labels)}")
+    # #
+
+    # body_model = XGBoostModel()
+    #
+    # body_model.load_model("xgb_body_model")
+    #
+    # body_tfidf = body_model.preprocess_to_known(data[:1000], column='body')
+    # body_tfidf = data[:1000].rename(columns={'label': '$label'})
+    # #
+    # body_tfidf = body_model.convert_to_tfidf(body_tfidf, column='body')
+    # body_tfidf = body_tfidf.drop(columns=['sender', 'receiver', 'subject'])
+    # body_tfidf = body_model.add_missing_columns(body_tfidf, '$label')
+    # body_labels = body_tfidf['$label']
+    # #
+    # body_tfidf = body_tfidf.drop(columns=['$label'])
+    # #
+    # #
+    # print(body_model.evaluate(body_tfidf, body_labels))
 

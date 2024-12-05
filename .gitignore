@@ -5,9 +5,10 @@ share/
 etc/
 include/
 src/dataset/
-
+__pycache__/
 .idea/
 
+*.pyc
 *.json
 *.csv
 *.keras
