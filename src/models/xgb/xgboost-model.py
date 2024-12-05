@@ -48,7 +48,8 @@ class XGBoostModel(Model):
             colsample_bytree=0.8,
             eval_metric='mlogloss',
             early_stopping_rounds=20,
-            verbosity=3
+            verbosity=3,
+            # device='cuda'           # Run with GPU
         )
 
 
@@ -172,8 +173,8 @@ class XGBoostModel(Model):
     def create_confusion_matrix(self, x_test: pd.DataFrame, y_test: pd.DataFrame) -> None:
         y_pred_probs = self.model.predict_proba(x_test)
         y_pred = np.argmax(y_pred_probs, axis=1)
-        y_true = np.argmax(y_test, axis=1)
 
+        y_true = y_test.values.flatten() if hasattr(y_test, 'values') else y_test
         self.cm = confusion_matrix(y_true, y_pred)
 
 
@@ -214,6 +215,7 @@ class XGBoostModel(Model):
 
         plt.tight_layout()
         plt.savefig(f"{MAIN_DIR}saved-results/xgb/plots/{self.model_category}/{self.model_name}-accuracy.png")
+        plt.clf()
 
 
 logging.basicConfig( level=logging.DEBUG,
