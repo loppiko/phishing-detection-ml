@@ -1,3 +1,4 @@
+from cProfile import label
 from typing import Tuple
 
 import pandas as pd
@@ -11,7 +12,7 @@ from tqdm import tqdm
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 import matplotlib.pyplot as plt
@@ -78,6 +79,10 @@ class XGBoostModel(Model):
         return accuracy
 
 
+    def predict_probabilities(self, x_test: pd.DataFrame) -> np.narray:
+        return self.model.predict_proba(x_test)
+
+
     def save(self, model_save_path: str = "") -> None:
         if model_save_path == "":
             model_save_path = f"{MAIN_DIR}/models/xgb/saved/{self.model_category}-{self.model_name}"
@@ -118,10 +123,13 @@ class XGBoostModel(Model):
 
         return df
 
-
-    def convert_to_tfidf(self, df: pd.DataFrame, column: str) -> pd.DataFrame:
+    def convert_to_tfidf(self, df: pd.DataFrame, column: str, remove_stop_words: bool) -> pd.DataFrame:
         if self.vectorizer is None:
-            self.vectorizer = TfidfVectorizer()
+            # Stop words are already deleted or not depending on dataset
+            if remove_stop_words:
+                self.vectorizer = TfidfVectorizer(stop_words='english')
+            else:
+                self.vectorizer = TfidfVectorizer(stop_words=None)
 
         logging.info(f"Start preprocess column: {column}")
 
@@ -179,6 +187,7 @@ class XGBoostModel(Model):
 
 
     def make_plots(self) -> None:
+        plt.figure(figsize=(8, 6))
         sns.heatmap(self.cm, annot=True, fmt='d', cmap='Blues',
                     xticklabels=['legal', 'spam', 'phishing', 'fraud'],
                     yticklabels=['legal', 'spam', 'phishing', 'fraud'])
@@ -193,6 +202,7 @@ class XGBoostModel(Model):
         plt.figure(figsize=(18, 6))
 
         plt.subplot(1, 3, 1)
+
         plt.plot(range(epochs), self.history['val_loss'], label="Validation Loss", color='orange')
         plt.xlabel("Epochs")
         plt.ylabel("Loss")
@@ -217,6 +227,12 @@ class XGBoostModel(Model):
         plt.savefig(f"{MAIN_DIR}saved-results/xgb/plots/{self.model_category}/{self.model_name}-accuracy.png")
         plt.clf()
 
+        final_accuracy = self.history['val_acc'][-1]
+        final_f1_score = self.f1_scores[-1]
+        with open(f"{MAIN_DIR}{self.model_name}-{self.model_category}", "w") as file:
+            file.write(f"Accuracy: {final_accuracy}\n")
+            file.write(f"F1-Score: {final_f1_score}\n")
+
 
 logging.basicConfig( level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(message)s", handlers=[logging.StreamHandler()]
@@ -230,48 +246,87 @@ def convert_to_label_encoding(df: pd.DataFrame, column: str) -> pd.DataFrame:
     return df
 
 
+def domain_matches(df: pd.DataFrame) -> pd.DataFrame:
+    df['domain'] = (df['sender'] == df['receiver']).astype(int)
+    return df
 
-def perform_multi_evaluation(xgb_boost_model_list: list[Tuple[XGBoostModel, float]], test_data: pd.DataFrame, test_labels: pd.DataFrame) -> None:
-    for xgb_model, model_accuracy in xgb_boost_model_list:
-        pass
 
+def perform_multi_evaluation(xgb_boost_model_list: list[Tuple[XGBoostModel, str, float, bool, bool]], test_data: pd.DataFrame, test_labels: pd.DataFrame, label_name: str) -> None:
+    cumulative_probabilities = np.zeros((test_data.shape[0], 4))
 
+    for xgb_model, train_column, model_accuracy, remove_stop_words, use_domain in xgb_boost_model_list:
+
+        if use_domain:
+            final_test_data = domain_matches(test_data)
+            final_test_data = final_test_data[[train_column]]
+        else:
+            temp_data = test_data[[train_column]]
+            tfidf_matrix = xgb_model.convert_to_tfidf(temp_data, column=train_column,
+                                                      remove_stop_words=remove_stop_words)
+            final_test_data = xgb_model.add_missing_columns(tfidf_matrix, label_name)
+            final_test_data = final_test_data.drop(columns=label_name)
+
+        model_probabilities = xgb_model.model.predict_proba(final_test_data)
+        cumulative_probabilities += model_probabilities * model_accuracy
+
+    final_predictions = np.argmax(cumulative_probabilities, axis=1)
+    final_accuracy = accuracy_score(test_labels, final_predictions)
+    final_f1 = f1_score(test_labels, final_predictions, average='weighted')
+    cm = confusion_matrix(test_labels, final_predictions)
+
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=['legal', 'spam', 'phishing', 'fraud'],
+                yticklabels=['legal', 'spam', 'phishing', 'fraud'])
+    plt.xlabel("Predicted Labels")
+    plt.ylabel("True Labels")
+    plt.title("Confusion Matrix")
+    plt.savefig(f"{MAIN_DIR}final-{xgb_boost_model_list[0][0].model_category}-conf-matrix.png")
+    plt.clf()
+
+    with open(f"{MAIN_DIR}final-{xgb_boost_model_list[0][0].model_category}-accuracy", "w") as file:
+        file.write(f"Accuracy: {final_accuracy}\n")
+        file.write(f"F1-Score: {final_f1}\n")
 
 
 CHECK_LOAD_DATA = False
 
 
 MODELS_PARAMS = [
-    {"models": [("body-model", "body", 20)], "model_category": "only-body", "dataset": "../../dataset/processed/final.csv", "add_subject": False, "add_domain": False},
-    {"models": [("body-model", "body", 20)], "model_category": "only-body-with-stop-words", "dataset": "../../dataset/processed/final-with-stop-words.csv", "add_subject": False, "add_domain": False},
-    # {"models": ["body", "subject"], "model_category": "", "dataset": "", "add_subject": True, "add_domain": False},
-    # {"models": ["body", "domain"], "model_category": "", "dataset": "", "add_subject": False, "add_domain": True},
-    # {"models": ["body", "subject", "domain"], "model_category": "", "dataset": "", "add_subject": True, "add_domain": True}
+    # {"models": [("body-model", "body", 4000, False, False)], "model_category": "only-body", "dataset": "/kaggle/input/xgboost-phishing/final.csv", "add_subject": False, "add_domain": False},
+    # {"models": [("body-model", "body", 4000, True, False)], "model_category": "only-body-with-stop-words", "dataset": "/kaggle/input/xgboost-phishing/final-with-stop-words.csv", "add_subject": False, "add_domain": False},
+    {"models": [("body-model", "body", 4_000, True, False), ("subject-model", "subject", 16_000, True, False)], "model_category": "body-subject", "dataset": "/kaggle/input/xgboost-phishing/final.csv"},
+    {"models": [("body-model", "body", 4_000, True, False), ("domain-model", "domain", 32_000, True, True)], "model_category": "body-domain", "dataset": "/kaggle/input/xgboost-phishing/final-domain-only.csv"},
+    {"models": [("body-model", "body", 4_000, True, False), ("domain-model", "domain", 32_000, True, True), ("subject-model", "subject", 16_000, True, False)], "model_category": "full", "dataset": "/kaggle/input/xgboost-phishing/final-domain-only.csv"}
 ]
+
 
 
 ###        ----         Preprocess data
 
 for param in MODELS_PARAMS:
 
-    models: list[Tuple[XGBoostModel, float]] = []
+    models: list[Tuple[XGBoostModel, str, float, bool, bool]] = []
 
     data = pd.read_csv(param["dataset"])
     label_column = "$label"
     data = data.rename(columns={'label': label_column})
 
-    for model_name, train_column, data_length in param["models"]:
-        input_data = data.sample(n=data_length, random_state=43)
+    for model_name, train_column, data_length, remove_stop_words, use_domain in param["models"]:
 
+        input_data = data.sample(n=data_length, random_state=43)
         xgb_model = XGBoostModel(model_name, param["model_category"])
 
-        input_data = input_data[[train_column, label_column]]
-
-        tfidf_matrix = xgb_model.convert_to_tfidf(input_data, column=train_column)
-        tfidf_matrix = xgb_model.add_missing_columns(tfidf_matrix, label_column)
-
-        train_labels = tfidf_matrix[[label_column]]
-        train_data = tfidf_matrix.drop(columns=[label_column])
+        if use_domain:
+            train_data = domain_matches(input_data)
+            train_labels = train_data[[label_column]]
+            train_data = train_data[[train_column]]
+        else:
+            input_data = input_data[[train_column, label_column]]
+            tfidf_matrix = xgb_model.convert_to_tfidf(input_data, column=train_column, remove_stop_words=remove_stop_words)
+            train_data = xgb_model.add_missing_columns(tfidf_matrix, label_column)
+            train_labels = train_data[[label_column]]
+            train_data = train_data.drop(columns=[label_column])
 
         X_train, X_temp, Y_train, Y_temp = train_test_split(train_data, train_labels, test_size=0.3, random_state=28)
         X_val, X_test, Y_val, Y_test = train_test_split(X_temp, Y_temp, test_size=0.5, random_state=28)
@@ -281,14 +336,16 @@ for param in MODELS_PARAMS:
         xgb_model.make_plots()
         xgb_model.save()
 
+        print(hash(frozenset(xgb_model.known_words)))
         model_accuracy = xgb_model.evaluate(X_test, Y_test)
 
         print(model_accuracy)
+        models.append((xgb_model, train_column, model_accuracy, remove_stop_words, use_domain))
 
-        models.append((xgb_model, model_accuracy))
-
-    # if X_test and Y_test:
-    #     perform_multi_evaluation(models, X_test, Y_test)
+    test_data = data.sample(n=data_length, random_state=43)
+    test_labels = test_data[[label_column]]
+    test_data = test_data.drop(columns=[label_column])
+    perform_multi_evaluation(models, test_data, test_labels, label_column)
 
 ###        ----         training model
 
